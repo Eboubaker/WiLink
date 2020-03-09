@@ -1,0 +1,38 @@
+﻿<Window x:Class="WPFUI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:WPFUI"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="553" Width="524">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="139*"/>
+            <ColumnDefinition Width="377*"/>
+        </Grid.ColumnDefinitions>
+        <Button Content="Serve" HorizontalAlignment="Left" Margin="76,20,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1" x:Name="ServeButton" Background="#FFD7AC6A" BorderBrush="{x:Null}" Click="ServeButtonClick"/>
+        <Button Content="Receive" HorizontalAlignment="Left" Margin="76,55,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1" x:Name="ReceiveButton" Background="#FFD7AC6A" BorderBrush="{x:Null}" Click="ReceiveButtonClick"/>
+        <TextBox HorizontalAlignment="Left" Height="23" Margin="73,143,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Grid.ColumnSpan="2" x:Name="DirectoryField"/>
+        <Label Content="IP" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,107,0,0"/>
+        <Label Content="Directory" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,140,0,0"/>
+        <TextBox HorizontalAlignment="Left" Height="23" Margin="73,110,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Grid.ColumnSpan="2" x:Name="IPField"/>
+        <Label Content="Log" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,171,0,0"/>
+        <TextBox HorizontalAlignment="Left" Height="38" Margin="10,197,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="496" x:Name="LogArea" Grid.ColumnSpan="2" HorizontalScrollBarVisibility="Visible" ScrollViewer.CanContentScroll="True">
+            <TextBox.Background>
+                <SolidColorBrush Color="{DynamicResource {x:Static SystemColors.ControlLightColorKey}}"/>
+            </TextBox.Background>
+        </TextBox>
+        <ProgressBar x:Name="ProgressBar" Grid.Column="1" HorizontalAlignment="Left" Height="12" Margin="197,143,0,0" VerticalAlignment="Top" Width="160"/>
+        <Label Content="Progress" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="136,137,0,0" Grid.Column="1" Height="27"/>
+        <ProgressBar x:Name="FileProgressBar" Grid.Column="1" HorizontalAlignment="Left" Height="12" Margin="197,160,0,0" VerticalAlignment="Top" Width="160"/>
+        <ListView HorizontalAlignment="Left" Height="247" Margin="10,240,0,0" VerticalAlignment="Top" Width="496" Grid.ColumnSpan="2">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+    </Grid>
+</Window>
