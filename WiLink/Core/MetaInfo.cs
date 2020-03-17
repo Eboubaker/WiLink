@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -28,8 +29,9 @@ namespace Core
                 Console.WriteLine("Failed to Send Meta Data - timeout reached (5seconds)");
                 Environment.Exit(1);
             }
-            NetworkStream stream = new NetworkStream(receiver);
+            BufferedStream stream = new BufferedStream(new NetworkStream(receiver), Constants.BUFFER_SIZE);
             new BinaryFormatter().Serialize(stream, this);
+            stream.Flush();
             receiver.Shutdown(SocketShutdown.Both);
             stream.Close();
             receiver.Close();
@@ -42,10 +44,11 @@ namespace Core
                 Console.WriteLine("Failed to Get Meta Data - timeout reached (5seconds)");
                 Environment.Exit(1);
             }
-            NetworkStream input = new NetworkStream(socket);
-            MetaInfo ret = new BinaryFormatter().Deserialize(input) as MetaInfo;
+            NetworkStream stream = new NetworkStream(socket);
+
+            MetaInfo ret = new BinaryFormatter().Deserialize(stream) as MetaInfo;
             socket.Shutdown(SocketShutdown.Both);
-            input.Close();
+            stream.Close();
             socket.Close();
             return ret;
         }

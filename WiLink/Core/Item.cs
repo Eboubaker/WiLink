@@ -29,10 +29,13 @@ namespace Core
     }
 
     [Serializable]
-    abstract class Item
+    public abstract class Item
     {
+        public int Id { set; get; }
         public long Size { set; get; }
         public byte Type { set; get; }
         public double Progress { set; get; }
+        public bool Compleated { get; set; }
+        public string DisplayName { get; set; }
     }
 }

@@ -5,104 +5,126 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Windows;
 using WPFUI;
+using WPFUI.Core;
 
 namespace Core
 {
     class SendOperation
     {
-        public static double[] totalReceived = { 0 };
-        public static double totalSize;
         public static Dictionary<int, Item> items;
+        static Item currentItem;
         public static void Send(object addrro)
         {
             IPEndPoint addrr = (IPEndPoint)addrro;
             int itemID;
-            Item item;
             Socket client;
             NetworkStream stream;
             FileStream file = null;
             FileItem fileitem = null;
             int read;
-            int tid = Thread.CurrentThread.ManagedThreadId;
-
             Socket server = new Socket(addrr.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             server.Bind(addrr);
             server.Listen(1);
-
-            new Thread(new ThreadStart(() => {
-                while (true)
+            for(int i = 0; i < items.Count; i++)
+            {
+                MainWindow.ItemsProgress.Add(0);
+                MainWindow.ItemsProgressHistory.Add(0);
+            }
+            new Thread(() => 
                 {
-                    lock (totalReceived)
+                    while (true) 
                     {
-                        double v = totalReceived[0] / totalSize;
-                        MainWindow.Progress.Dispatcher.Invoke((Action)(() =>
+                        try 
                         {
-                            MainWindow.Progress.Value = v * 100;
-                        }));
-                        if (v == 1)
-                        {
-                            break;
-                        }
+                            MainWindow.instance.ThrowTracker();
+                        } 
+                        catch {}
+                        Thread.Sleep(2000);
                     }
-                    Thread.Sleep(200);
                 }
-            })).Start();
+            ).Start();
 
+            TestUtil.AddTimer("All Timer");// 0
+            TestUtil.AddTimer("Waiting For a Connection");// 1
+            TestUtil.AddTimer("Waiting For File Number Request");// 2
+            TestUtil.AddTimer("Reading The File Bytes");// 3
+            TestUtil.AddTimer("Writing The File Bytes");// 4
+            TestUtil.AddTimer("Adding The File Progress");// 5
+
+            TestUtil.StartTimerTicking(0);
+            MainWindow.instance.SetStatus("Sending Files");
             while (true)
             {
-                Console.WriteLine("SenderOP{0}: Getting Lock(index Key)");
-                Console.WriteLine("SenderOP{0}: Getting Lock(index Key)", tid);
-                lock (items)
+                if (!SharedAttributes.ServePending)
                 {
-                    Console.WriteLine("ReceiverOP{0}: Got Lock(index Key)", tid);
-                    Console.WriteLine("SenderOP{0}: Waiting for a File request", tid);
-                    if (!Network.SocketAcceptWithTimeout(out client, server, 10000))
-                    {
-                        Console.WriteLine("SenderOP{0}: No Receiver Found... Time out 10 seconds, Stopping", tid);
-                        Environment.Exit(1);
-                    }
-                    stream = new NetworkStream(client);
-                    itemID = new BinaryReader(stream).ReadInt32();
-                    if (itemID < 0)
-                    {
-                        Console.WriteLine("SenderOP{1}: Got End of Transmission", itemID, tid);
-                        break;
-                    }
-                    Console.WriteLine("SenderOP{1}: Receiver Requested item {0}", itemID, tid);
-                    item = items[itemID];
-                    Console.WriteLine("SenderOP{0}: Unlocking(index Key)", tid);
+                    break;
                 }
-                
-                if (item as FileItem != null)
+                TestUtil.StartTimerTicking(1);
+                if (!Network.SocketAcceptWithTimeout(out client, server, 10000))
+                {
+                    MessageBox.Show("Receiver Disconnected");
+                    break;
+                }
+                TestUtil.StopTimerTicking(1);
+
+                TestUtil.StartTimerTicking(2);
+                stream = new NetworkStream(client);
+                itemID = new BinaryReader(stream).ReadInt32();
+                TestUtil.StopTimerTicking(2);
+                if (itemID < 0)
+                {
+                    Console.WriteLine("Got End of Transmission");
+                    break;
+                }
+                Console.WriteLine("Receiver Requested item {0}", itemID);
+                currentItem = items[itemID];
+                if (currentItem as FileItem != null)
                 {
                     try
                     {
-                        fileitem = (FileItem)item;
-                        Console.WriteLine("SenderOP{1}: Sending {0}", fileitem.GlobalPath, tid);
-                        file = File.OpenRead(fileitem.LocalPath);
+                        fileitem = (FileItem)currentItem;
+                        Console.WriteLine("Sending {0}", fileitem.GlobalPath);
 
-                        byte[] buffer = new byte[Constants.BUFFER_SIZE];
-                        while ((read = file.Read(buffer, 0, buffer.Length)) > 0)
+                        file = File.OpenRead(fileitem.LocalPath);
+                        byte[] readBuffer = new byte[Constants.BUFFER_SIZE];
+                        while (true)
                         {
-                            stream.Write(buffer, 0, read);
-                            lock (totalReceived)
+                            TestUtil.StartTimerTicking(3);
+                            read = file.Read(readBuffer, 0, readBuffer.Length);
+                            TestUtil.StopTimerTicking(3);
+                            if (!(read > 0))
                             {
-                                totalReceived[0] += read;
+                                break;
                             }
+                            TestUtil.StartTimerTicking(4);
+                            stream.Write(readBuffer, 0, read);
+                            TestUtil.StopTimerTicking(4);
+
+                            TestUtil.StartTimerTicking(5);
+                            currentItem.Progress += read;
+                            Monitor.Enter(MainWindow.ItemsProgress);
+                            MainWindow.ProgressSize += read;
+                            MainWindow.ItemsProgress[currentItem.Id] = (float)(currentItem.Progress / currentItem.Size);
+                            Monitor.Exit(MainWindow.ItemsProgress);
+                            TestUtil.StopTimerTicking(5);
                         }
                         file.Close();
-                    }catch(UnauthorizedAccessException e)
+                    }
+                    catch(UnauthorizedAccessException e)
                     {
-                        Console.WriteLine("SenderOP{1}: insufficient Authorization to Read from {0} Skipping file...", fileitem.GlobalPath, tid);
+                        Console.WriteLine("insufficient Authorization to Read from {0} Skipping file...", fileitem.GlobalPath);
                     }
                 }
-                Console.WriteLine("SenderOP{0}: Closing Socket", tid);
+                Console.WriteLine("Closing Socket");
                 client.Shutdown(SocketShutdown.Both);
                 stream.Close();
                 client.Close();
             }
+            TestUtil.StopTimerTicking(0);
             server.Close();
+            TestUtil.ShowAllTimers();
         }
     }
 }

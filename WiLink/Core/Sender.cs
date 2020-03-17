@@ -7,63 +7,116 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using WPFUI;
+using WPFUI.Core;
 
 namespace Core
 {
     
     class Sender
     {
+        private static void err(string message)
+        {
+            MainWindow.instance.SetServing(false);
+            MessageBox.Show(message);
+        }
         public static void SendFiles(IPAddress ip, params string[] paths)
         {
-            Console.WriteLine("Hi {0}", "Ahmed");
-            if (ip == null)
+            try
             {
-                if(!Network.StartHostedNetwork(out ip))
+                MainWindow.instance.SetServing(true);
+                if (ip == null)
                 {
-                    throw new Exception("Cloudn't Start the application network");
+                    MainWindow.instance.SetStatus("Starting WiLink Network");
+                    if (!Network.StartHostedNetwork(out ip))
+                    {
+                        throw new IOException("Couldn't Start WiLink Network");
+                    }
+                }
+                MainWindow.instance.SetStatus("Indexing Files");
+                List<FileItem> filelist = new List<FileItem>();
+                foreach (string p in paths)
+                {
+                    filelist.AddRange(Utility.GetFiles(p));
+                }
+                TransferItems items = new TransferItems();
+                for (int i = 0; i < filelist.Count; i++)
+                {
+                    filelist[i].Id = i;
+                    filelist[i].DisplayName = filelist[i].Name;
+                    items.Add(i, filelist[i]);
+                }
+                MainWindow.instance.Dispatcher.Invoke((Action)(() =>
+                {
+                    foreach (Item itm in items.Items)
+                    {
+                        MainWindow.instance.AddItem(itm);
+                    }
+                }));
+                MainWindow.instance.SetStatus("Waiting for Receiver Signal...");
+                if (!AwaitReceiver(ip))
+                {
+                    if (!SharedAttributes.ServePending)
+                    {
+                        throw new Exception("NULL");
+                    }
+                    else
+                    {
+                        throw new Exception("No Receivers Found, Timeout 60 seconds");
+                    }
+                }
+                MainWindow.instance.SetStatus("Sending Meta Info");
+                MainWindow.TotalSize = items.TotalSize;
+                MetaInfo metainfo = new MetaInfo(items);
+                metainfo.SendMetas(ip);
+                MainWindow.instance.SetStatus("Starting Send Operations");
+
+                SendOperation.items = new Dictionary<int, Item>();
+                foreach (Item m in metainfo.Items.Items)
+                {
+                    SendOperation.items.Add(m.Id, m);
+                }
+                IPEndPoint ReceiverEndPoint = new IPEndPoint(ip, metainfo.Ports[0]);
+                Thread t1 = new Thread(new ThreadStart(() => SendOperation.Send(ReceiverEndPoint)));
+                t1.Start();
+                t1.Join();
+            }
+            catch(Exception e)
+            {
+                if (e.Message != "NULL")
+                {
+                    err(e.Message);
                 }
             }
-            //IPHostEntry ipHost = Dns.GetHostEntry("127.0.0.1");
-            //IPAddress networkIP = ipHost.AddressList[0];
-
-            Console.WriteLine("Sender: Indexing files");
-            List<FileItem> filelist = new List<FileItem>();
-            foreach(string p in paths)
+            finally
             {
-                filelist.AddRange(Utility.GetFiles(p));
+                if (SharedAttributes.ServePending)
+                {
+                    MainWindow.instance.SetServing(false);
+                }
+                MainWindow.instance.ConfirmServeCancelled();
             }
-            TransferItems items = new TransferItems();
-            for(int i = 0; i < filelist.Count; i++)
-            {
-                items.Add(i, filelist[i]);
-            }
-            Console.WriteLine("Sender: Waiting for Receiver Signal");
-            if (!AwaitReceiver(ip))
-            {
-                Console.WriteLine("Sender: No Receivers Found.. Closing, Timeout 30 seconds");
-                Environment.Exit(1);
-            }
-            Console.WriteLine("Sender: Got Signal");
-            Console.WriteLine("Sender: Sending Meta Info");
-            MetaInfo metainfo = new MetaInfo(items);
-            metainfo.SendMetas(ip);
-            Console.WriteLine("Sender: Meta Info Sent");
-            Console.WriteLine("Sender: Starting Send Operations");
-            SendOperation.items = metainfo.Items.Items;
-            SendOperation.totalSize = metainfo.Items.TotalSize;
-            Thread t1 = new Thread(new ParameterizedThreadStart(SendOperation.Send));
-            t1.Start(new IPEndPoint(ip, metainfo.Ports[0]));
-            t1.Join();
-            Console.WriteLine("Sender: Operations Are Compleat");
-        }
-
+        } 
         public static bool AwaitReceiver(IPAddress addrr)
         {
-            Socket s;
-            bool connected = Network.SocketAcceptWithTimeout(out s, new IPEndPoint(addrr, Constants.Signal_PORT), 30000);
-            if(s!=null)
-                s.Close();
-            return connected;
+            IPEndPoint senderEndPoint = new IPEndPoint(addrr, Constants.Signal_PORT);
+            Socket server = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            DateTime timeoutTime = DateTime.Now.AddSeconds(60);
+            do
+            {
+                try
+                {
+                    server.Bind(senderEndPoint);
+                    Socket reciver = server.Accept();
+                    server.Close();
+                    reciver.Close();
+                    return true;
+                }
+                catch { }
+                Thread.Sleep(500);
+            } while (DateTime.Now < timeoutTime && SharedAttributes.ServePending);
+            return false;
         }
     }
     

@@ -79,6 +79,8 @@
     <Compile Include="Core\Receiver.cs" />
     <Compile Include="Core\Sender.cs" />
     <Compile Include="Core\SendOperation.cs" />
+    <Compile Include="Core\SharedAttributes.cs" />
+    <Compile Include="Core\TestUtil.cs" />
     <Compile Include="Core\TransferItems.cs" />
     <Compile Include="Core\Utility.cs" />
     <Compile Include="MainWindow.xaml.cs">

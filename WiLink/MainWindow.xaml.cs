@@ -7,6 +7,8 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using WPFUI;
+using WPFUI.Core;
 
 namespace WPFUI
 {
@@ -15,28 +17,103 @@ namespace WPFUI
     /// </summary>
     public partial class MainWindow : Window
     {
-        public static ProgressBar Progress;
+        public static MainWindow instance;
+        public static List<float> ItemsProgress = new List<float>();
+        public static List<float> ItemsProgressHistory = new List<float>();
+
+        public static long TotalSize;
+        public static double ProgressSize;
+
+        private int LastTrackerIndex;
+
         public MainWindow()
         {
             InitializeComponent();
             InitilizeSelf();
-            ControlWriter wrt = new ControlWriter(this);
-            Console.SetOut(wrt);
-            Console.SetError(wrt);
-            Console.WriteLine("Application Started");
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
+        }
+
+        internal void SetStatus(string status)
+        {
+            Dispatcher.Invoke(() => StatusBox.Content = status);
         }
 
         void InitilizeSelf()
         {
-            Progress = this.ProgressBar;
-            LogArea.TextChanged += (sender, e) => LogArea.ScrollToEnd();
-            //LogArea.HorizontalScrollBarVisibility = ScrollBarVisibility.Visible;
-            //LogArea.HorizontalScrollBarVisibility = ScrollBarVisibility.Visible;
+            instance = this;
+            Title = "WI-LINK By Eboubaker.B";
         }
+        public void SetServing(bool serving)
+        {
+            Dispatcher.Invoke(() => {
+                if (serving)
+                {
+                    ServeButton.Content = "Cancell";
+                    SharedAttributes.ServePending = true;
+                    ReceiveButton.IsEnabled = false;
+                }
+                else
+                {
+                    SharedAttributes.ServePending = false;
+                    ServeButton.Content = "Cancelling";
+                    ServeButton.IsEnabled = false;
+                }
+            });
+        }
+        public void ConfirmServeCancelled()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ServeButton.Content = "Serve";
+                ServeButton.IsEnabled = true;
+                ReceiveButton.IsEnabled = true;
+                SharedAttributes.ServePending = false;
+                StatusBox.Content = "Waiting for Command";
+            });
+        }
+
+        public void SetReceiving(bool receiving)
+        {
+            Dispatcher.Invoke(() => {
+                if (receiving)
+                {
+                    ReceiveButton.Content = "Cancell";
+                    SharedAttributes.ReceivePending = true;
+                    ServeButton.IsEnabled = false;
+                }
+                else
+                {
+                    SharedAttributes.ReceivePending = false;
+                    ReceiveButton.Content = "Cancelling";
+                    ReceiveButton.IsEnabled = false;
+                }
+            });
+        }
+        public void ConfirmReceiveCancelled()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ReceiveButton.Content = "Receive";
+                ReceiveButton.IsEnabled = true;
+                ServeButton.IsEnabled = true;
+                SharedAttributes.ReceivePending = false;
+                StatusBox.Content = "Waiting for Command";
+            });
+        }
+
         private void ServeButtonClick(object ignore0, RoutedEventArgs ignore1)
         {
+            if(SharedAttributes.ServePending)
+            {
+                SetServing(false);
+                return;
+            }
             string ip = IPField.Text.Trim();
             string directory = DirectoryField.Text.Trim();
+            if (directory.StartsWith("\"") && directory.EndsWith("\""))
+            {
+                directory = directory.Substring(1, directory.Length - 2);
+            }
             List<string> directories = new List<string>();
             IPAddress address = null;
             try
@@ -66,6 +143,7 @@ namespace WPFUI
                     }
                 }
                 new Thread(new ThreadStart(() => Sender.SendFiles(address, directories.ToArray()))).Start();
+                    
             }
             catch (Exception e)
             {
@@ -75,8 +153,17 @@ namespace WPFUI
         }
         private void ReceiveButtonClick(object ignore0, RoutedEventArgs ignore1)
         {
+            if (SharedAttributes.ReceivePending)
+            {
+                SetReceiving(false);
+                return;
+            }
             string ip = IPField.Text.Trim();
             string directory = DirectoryField.Text.Trim();
+            if (directory.StartsWith("\"") && directory.EndsWith("\""))
+            {
+                directory = directory.Substring(1, directory.Length - 2);
+            }
             IPAddress address = null;
             try
             {
@@ -110,26 +197,90 @@ namespace WPFUI
                 MessageBox.Show(e.Message);
             }
         }
-        public void Write(string s)
+        public void AddItem(Item m)
         {
-            Application.Current.Dispatcher
-                .Invoke((Action)(() => { this.LogArea.Text += s; }));
+            this.FileList.Items.Add(new ItemView(m));
+        }
+        public void SetItemProgress(int id, int value)
+        {
+            (this.FileList.Items[id] as ItemView).setProgress(value);
         }
 
-        public static T GetParentOfType<T>(DependencyObject current)
-          where T : DependencyObject
+        public void ThrowTracker()
         {
-            for (DependencyObject parent = VisualTreeHelper.GetParent(current);
-                parent != null;
-                parent = VisualTreeHelper.GetParent(parent))
+            Application.Current.Dispatcher.Invoke((Action)(() => 
             {
-                T result = parent as T;
+                Monitor.Enter(ItemsProgress);
+                for (int i = LastTrackerIndex; i < ItemsProgress.Count; i++)
+                {
+                    float Iprogress = ItemsProgress[i];
+                    if (Iprogress == 0)
+                    {
+                        break; // we passed the last 'currentItem'
+                    }
+                    if(Iprogress == 1 && ItemsProgressHistory[i] == 1)
+                    {
+                        LastTrackerIndex = i + 1;
+                        continue;
+                    }
+                    SetItemProgress(i, (int)(Iprogress * 100f));
+                    ItemsProgressHistory[i] = Iprogress;
+                }
 
-                if (result != null)
-                    return result;
+                ProgressNumber.Content = (((int)(ProgressSize / TotalSize * 10000)) / 100f) + "%";
+                Monitor.Exit(ItemsProgress);
             }
-
-            return null;
+            ));
         }
+
+    }
+}
+class ItemView : ListBoxItem
+{
+    Item Item { get; set; }
+    ProgressBar ItemProgress;
+    public ItemView(Item itm)
+    {
+        //< ListBoxItem Height = "28" >
+        //    < Grid Height = "29" Width = "485" >
+        //        < Label Height = "29" VerticalAlignment = "Top" Content = "File" Margin = "0,0,307,0" />
+        //        < ProgressBar Height = "29" Margin = "183,0,0,0" VerticalAlignment = "Top" />
+        //    </ Grid >
+        //</ ListBoxItem >
+
+        this.Width = MainWindow.instance.FileList.ActualWidth - 50;
+        this.Height = 16;
+        Item = itm;
+        Grid Holder = new Grid();
+        Label ItemName = new Label();
+        ItemProgress = new ProgressBar();
+        
+
+        Holder.Height = this.Height;
+        Holder.Width = this.Width;
+
+        ItemName.Content = itm.DisplayName;
+        ItemName.Height = Holder.Height;
+        ItemName.Margin = new Thickness(10, 0, 0, 0);
+        ItemName.Padding = new Thickness(0, 0, 0, 0);
+        ItemName.VerticalAlignment = VerticalAlignment.Center;
+        ItemName.HorizontalAlignment = HorizontalAlignment.Left;
+        ItemName.Width = 500;
+        ItemName.FontSize = 9;
+        
+        ItemProgress.Height = Holder.Height;
+        ItemProgress.Width = 460;
+        ItemProgress.Padding = new Thickness(0, 0, 0, 0);
+        ItemProgress.Margin = new Thickness(0, 0, 10, 0);
+        ItemProgress.VerticalAlignment = VerticalAlignment.Center;
+        ItemProgress.HorizontalAlignment = HorizontalAlignment.Right;
+
+        Holder.Children.Add(ItemName);
+        Holder.Children.Add(ItemProgress);
+        this.Content = Holder;
+    }
+    public void setProgress(int value)
+    {
+        this.ItemProgress.Value = value;
     }
 }

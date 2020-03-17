@@ -7,36 +7,18 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Windows;
 using WPFUI;
+using WPFUI.Core;
 
 namespace Core
 {
-    class ReceiveOptions
-    {
-        public IPEndPoint addrrr;
-        public string outputPath;
-
-        public ReceiveOptions(IPEndPoint addrrr, string outputPath)
-        {
-            this.addrrr = addrrr;
-            this.outputPath = outputPath;
-        }
-    }
     class ReceiveOperation
     {
-        public static double totalSize;
-        public static double[] totalReceived = { 0 };
+        public static Item currentItem;
+        public static Queue<Item> items;
 
-        public static object safeLock = new object();
-        public static Dictionary<int, Item> items;
-        public static void Receive(object reciveoptions)
-        {
-            ReceiveOptions receiveopt = reciveoptions as ReceiveOptions;
-            IPEndPoint conn = receiveopt.addrrr;
-            string outputPath = receiveopt.outputPath;
-            
+        public static void Receive(IPEndPoint conn, string outputPath)
+        {   
             Socket sender;
-            int itemID = 0;
-            Item item = null;
             NetworkStream stream;
             BinaryWriter wrt;
             FileStream file;
@@ -44,103 +26,110 @@ namespace Core
             int read;
             int tid = Thread.CurrentThread.ManagedThreadId;
 
-            new Thread(new ThreadStart(() => {
+            for (int i = 0; i < items.Count; i++)
+            {
+                MainWindow.ItemsProgress.Add(0);
+                MainWindow.ItemsProgressHistory.Add(0);
+            }
+            new Thread(() =>
+            {
                 while (true)
                 {
-                    lock (totalReceived)
+                    try
                     {
-                        double v = totalReceived[0] / totalSize;
-                        MainWindow.Progress.Dispatcher.Invoke((Action)(() =>
-                        {
-                            MainWindow.Progress.Value = v * 100;
-                        }));
-                        if (v == 1)
-                        {
-                            break;
-                        }
+                        MainWindow.instance.ThrowTracker();
                     }
-                    Thread.Sleep(200);
+                    catch { }
+                    Thread.Sleep(2000);
                 }
-            })).Start();
+            }
+            ).Start();
+            
+            TestUtil.AddTimer("All Timer");// 0
+            TestUtil.AddTimer("Connecting");// 1
+            TestUtil.AddTimer("Reading The File Bytes");// 2
+            TestUtil.AddTimer("Writing The File Bytes");// 3
+            TestUtil.AddTimer("Adding The File Progress");// 4
+
+            TestUtil.StartTimerTicking(0);
+            MainWindow.instance.SetStatus("Sending Files");
             while (true)
             {
-                Console.WriteLine("ReceiverOP{0}: Connecting to Sender", tid);
+                if(!SharedAttributes.ServePending)
+                {
+                    break;
+                }
+                TestUtil.StartTimerTicking(1);
                 if (!Network.SocketConnectWithTimeout(out sender, conn, 10000))
                 {
-                    Console.WriteLine("ReceiverOP{0}: No Sender Found... Time out 10 seconds Stopping", tid);
-                    Utility.Exit("");
+                    MessageBox.Show("Sender Disconnected");
+                    break;
                 }
-                Console.WriteLine("ReceiverOP{0}: Getting Lock(Get Next Key)", tid);
-                lock (safeLock)
+                TestUtil.StopTimerTicking(1);
+
+                stream = new NetworkStream(sender);
+                wrt = new BinaryWriter(stream);
+                if (items.Count == 0)
                 {
-                    Console.WriteLine("ReceiverOP{0}: Got Lock(Get Next Key)", tid);
-                    foreach (int key in items.Keys)
-                    {
-                        itemID = key;
-                        item = items[key];
-                        items.Remove(key);
-                        break;
-                    }
-                    stream = new NetworkStream(sender);
-                    wrt = new BinaryWriter(stream);
-                    Console.WriteLine("ReceiverOP{0}: UnLocking(Get Next Key)", tid);
-                }
-                if (item == null)
-                {
-                    Console.WriteLine("ReceiverOP{1}: Sending End of Transmission", itemID, tid);
                     wrt.Write(-1);// end of Operation
                     break;
                 }
                 else
                 {
-                    Console.WriteLine("ReceiverOP{1}: Requesting item {0}", itemID, tid);
-                    wrt.Write(itemID);// WriteInt32()
+                    Console.WriteLine("Getting Key");
+                    currentItem = items.Dequeue();
+                    wrt.Write(currentItem.Id);// WriteInt32()
+                    Console.WriteLine("Requested item {0}", currentItem.Id);
                 }
-                if (item as FileItem != null)
+                if (currentItem as FileItem != null)
                 {
-                    
-                    FileItem fileitem = item as FileItem;
+                    FileItem fileitem = currentItem as FileItem;
                     fileitem.ConstructLocalPath(outputPath);
                     if (fileitem.IsDirectory)
                     {
-                        Console.WriteLine("ReceiverOP{1}: Creating Directory [{0}]", fileitem.GlobalPath, tid);
+                        Console.WriteLine("Creating Directory [{0}]", fileitem.GlobalPath);
                         Directory.CreateDirectory(fileitem.LocalPath);
                     }
                     else
                     {
-                        Console.WriteLine("ReceiverOP{1}: Preparing File [{0}]", fileitem.GlobalPath, tid);
+                        Console.WriteLine("Preparing File [{0}]", fileitem.GlobalPath);
                         fileinfo = new FileInfo(fileitem.LocalPath);
                         if (!new DirectoryInfo(fileinfo.DirectoryName).Exists)
                             new DirectoryInfo(fileinfo.DirectoryName).Create();
                         file = File.OpenWrite(fileitem.LocalPath);
-                        Console.WriteLine("ReceiverOP{1}: Reading File [{0}]", fileitem.GlobalPath, tid);
+                        Console.WriteLine("Reading File [{0}]", fileitem.GlobalPath);
                         byte[] buffer = new byte[Constants.BUFFER_SIZE];
-                        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                        while (true)
                         {
-                            file.Write(buffer, 0, read);
-                            lock (totalReceived)
+                            TestUtil.StartTimerTicking(2);
+                            read = stream.Read(buffer, 0, buffer.Length);
+                            TestUtil.StopTimerTicking(2);
+                            if (!(read>0))
                             {
-                                totalReceived[0] += read;
+                                break;
                             }
+                            TestUtil.StartTimerTicking(3);
+                            file.Write(buffer, 0, read);
+                            TestUtil.StopTimerTicking(3);
+
+                            TestUtil.StartTimerTicking(4);
+                            currentItem.Progress += read;
+                            Monitor.Enter(MainWindow.ItemsProgress);
+                            MainWindow.ProgressSize += read;
+                            MainWindow.ItemsProgress[currentItem.Id] = (float)(currentItem.Progress / currentItem.Size);
+                            Monitor.Exit(MainWindow.ItemsProgress);
+                            TestUtil.StartTimerTicking(4);
                         }
                         file.Close();
                     }
                 }
-                /*
-                Console.WriteLine("ReceiverOP{0}: Locking(Remove Key)", tid);
-                lock (safeLock) {
-                    Console.WriteLine("ReceiverOP{0}: Got Lock(Remove Key)", tid);
-                    Console.WriteLine("ReceiverOP{1}: Destroying item {0}", itemID, tid);
-                    items.Remove(itemID);
-                    Console.WriteLine("ReceiverOP{0}: UnLocking(Remove Key)", tid);
-                }
-                */
-                Console.WriteLine("ReceiverOP{0}: Closing Connection", tid);
+                Console.WriteLine("Closing Connection");
                 sender.Shutdown(SocketShutdown.Receive);
                 stream.Close();
                 sender.Close();
-                item = null;
             }
+            TestUtil.StopTimerTicking(0);
+            TestUtil.ShowAllTimers();
         }
     }
 }

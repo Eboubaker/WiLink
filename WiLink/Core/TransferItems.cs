@@ -12,15 +12,15 @@ namespace Core
     class TransferItems
     {
         public long TotalSize = 0;
-        public Dictionary<int, Item> Items;
+        public Queue<Item> Items;
         public void Add(int key, Item item)
         {
             this.TotalSize += item.Size;
-            Items.Add(key, item);
+            Items.Enqueue(item);
         }
         public TransferItems()
         {
-            Items = new Dictionary<int, Item>();
+            Items = new Queue<Item>();
         }
     }
 }
