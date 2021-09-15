@@ -108,12 +108,13 @@ namespace Core
                 try
                 {
                     server.Bind(senderEndPoint);
+                    server.Listen(1);
                     Socket reciver = server.Accept();
                     server.Close();
                     reciver.Close();
                     return true;
                 }
-                catch { }
+                catch (Exception e){ }
                 Thread.Sleep(500);
             } while (DateTime.Now < timeoutTime && SharedAttributes.ServePending);
             return false;

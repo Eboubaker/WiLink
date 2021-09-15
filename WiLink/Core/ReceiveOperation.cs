@@ -33,7 +33,7 @@ namespace Core
             }
             new Thread(() =>
             {
-                while (true)
+                while (Application.Current != null)
                 {
                     try
                     {
@@ -55,7 +55,7 @@ namespace Core
             MainWindow.instance.SetStatus("Sending Files");
             while (true)
             {
-                if(!SharedAttributes.ServePending)
+                if(!SharedAttributes.ReceivePending)
                 {
                     break;
                 }
